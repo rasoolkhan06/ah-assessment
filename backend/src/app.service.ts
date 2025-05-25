@@ -1,7 +1,8 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Inject } from '@nestjs/common';
 import { access, constants } from 'fs/promises';
 import { DeepgramService, TranscriptionError } from './services/deepgram.service';
 import { GeminiService, SOAPGenerationError } from './services/gemini.service';
+import { PrismaClient } from '@prisma/client';
 
 class FileOperationError extends Error {
   constructor(message: string, public readonly code: string, public readonly details?: any) {
@@ -18,6 +19,8 @@ export class AppService {
     private readonly deepgramService: DeepgramService,
     private readonly geminiService: GeminiService
   ) {}
+
+  private prisma = new PrismaClient();
 
   async processAudio(filePath: string, id?: string) {
     const method = 'processAudio';
@@ -60,6 +63,18 @@ export class AppService {
           soapReport = await this.geminiService.generateSOAPReport(transcript);
           this.logger.log(`[${method}] SOAP report generated successfully`);
           
+          // Update the transcription record with success status
+          if (id) {
+            await this.prisma.transcription.update({
+              where: { id },
+              data: {
+                status: 'completed',
+                transcript,
+                soapReport: soapReport || null,
+              },
+            });
+          }
+          
           return { 
             success: true,
             transcript, 
@@ -73,7 +88,21 @@ export class AppService {
           
         } catch (error) {
           this.logger.error(`[${method}] SOAP report generation failed`, error);
-          soapReport = 'SOAP report generation failed: ' + error.message;
+          const errorMessage = 'SOAP report generation failed: ' + error.message;
+          soapReport = errorMessage;
+          
+          // Update the transcription record with partial success status
+          if (id) {
+            await this.prisma.transcription.update({
+              where: { id },
+              data: {
+                status: 'completed_with_errors',
+                transcript,
+                soapReport: errorMessage,
+                error: errorMessage
+              },
+            });
+          }
           
           return { 
             success: true,
@@ -91,6 +120,20 @@ export class AppService {
         }
       } catch (error) {
         this.logger.error(`[${method}] Transcription failed`, error);
+        
+        // Update the transcription record with error status
+        if (id) {
+          await this.prisma.transcription.update({
+            where: { id },
+            data: {
+              status: 'failed',
+              transcript: null,
+              soapReport: null,
+              error: `Transcription failed: ${error.message}`
+            },
+          });
+        }
+        
         throw new TranscriptionError(
           `Transcription failed: ${error.message}`,
           'TRANSCRIPTION_FAILED',

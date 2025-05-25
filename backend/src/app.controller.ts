@@ -26,11 +26,11 @@ export class TranscriptionController {
     await writeFile(filePath, file.buffer);
     console.log('File saved successfully');
 
-    // const record = await prisma.transcription.create({
-    //   data: { fileName: file.originalname, status: 'in_progress', transcript: '' },
-    // });
+    const record = await prisma.transcription.create({
+      data: { fileName: file.originalname, status: 'in_progress', transcript: '' },
+    });
 
-    this.transcriptionService.processAudio(filePath);
+    this.transcriptionService.processAudio(filePath, record.id);
 
     return { message: 'Transcription started' };
   }
