@@ -54,27 +54,114 @@ function App() {
     }
   };
 
+  const [reportId, setReportId] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Poll for report updates
+  useEffect(() => {
+    if (!reportId || !isProcessing) return;
+
+    const checkReportStatus = async () => {
+      try {
+        console.log('Checking report status for ID:', reportId);
+        const response = await axios({
+          method: 'get',
+          url: `${API_BASE_URL}/transcription/report/${reportId}`,
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache'
+          },
+          timeout: 10000, // 10 seconds timeout
+          withCredentials: true
+        });
+        
+        console.log('Report status response:', response);
+        
+        // Handle different response formats
+        const reportData = response.data.data || response.data;
+        
+        if (!reportData) {
+          throw new Error('No data in response');
+        }
+        
+        const status = reportData.status || 'unknown';
+        setStatus(status.replace('_', ' '));
+        
+        if (reportData.transcript) {
+          setTranscript(reportData.transcript);
+        }
+        
+        if (reportData.soapReport) {
+          setSoapReport(reportData.soapReport);
+        }
+        
+        // Handle different statuses
+        if (status === 'completed') {
+          setStatus('Transcription completed');
+          setIsProcessing(false);
+        } else if (status === 'completed_with_errors') {
+          setStatus('Completed with errors');
+          setIsProcessing(false);
+        } else if (status === 'failed') {
+          setStatus('Transcription failed');
+          setIsProcessing(false);
+        } else if (status === 'in_progress') {
+          setStatus('Processing audio...');
+        }
+      } catch (error) {
+        console.error('Error checking report status:', error);
+        setStatus('Error checking status');
+        setIsProcessing(false);
+      }
+    };
+
+    // Poll every 2 seconds
+    const intervalId = setInterval(checkReportStatus, 2000);
+    
+    // Initial check
+    checkReportStatus();
+    
+    // Cleanup interval on unmount or when report is complete
+    return () => clearInterval(intervalId);
+  }, [reportId, isProcessing]);
+
   const sendAudioToBackend = async (audioBlob) => {
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.wav');
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/transcription/upload`, formData, {
+      setStatus('Uploading audio...');
+      console.log('Sending request to:', `${API_BASE_URL}/transcription/upload`);
+      
+      const response = await axios({
+        method: 'post',
+        url: `${API_BASE_URL}/transcription/upload`,
+        data: formData,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'Accept': 'application/json'
         },
+        timeout: 30000, // 30 seconds timeout
+        withCredentials: true, // Include credentials (cookies, HTTP authentication)
       });
 
-      setStatus('Transcription completed');
-      if (response.data.transcript) {
-        setTranscript(response.data.transcript);
-      }
-      if (response.data.soapReport) {
-        setSoapReport(response.data.soapReport);
+      console.log('Upload response:', response);
+      
+      if (response && response.data && response.data.id) {
+        setReportId(response.data.id);
+        setIsProcessing(true);
+        setStatus('Processing audio...');
+      } else {
+        console.error('Unexpected response format:', response);
+        throw new Error('Invalid response format from server');
       }
     } catch (error) {
       console.error('Error sending audio to backend:', error);
-      setStatus('Error processing audio');
+      const errorMessage = error.response?.data?.message || 
+                         error.message || 
+                         'Error processing audio';
+      setStatus(errorMessage);
+      setIsProcessing(false);
     }
   };
 
@@ -94,11 +181,19 @@ function App() {
         
         <div className="recording-controls">
           {!isRecording ? (
-            <button onClick={startRecording} className="record-button">
-              Start Recording
+            <button 
+              onClick={startRecording} 
+              className={`record-button ${isProcessing ? 'disabled' : ''}`}
+              disabled={isProcessing}
+            >
+              {isProcessing ? 'Processing...' : 'Start Recording'}
             </button>
           ) : (
-            <button onClick={stopRecording} className="stop-button">
+            <button 
+              onClick={stopRecording} 
+              className={`stop-button ${isProcessing ? 'disabled' : ''}`}
+              disabled={isProcessing}
+            >
               Stop Recording
             </button>
           )}

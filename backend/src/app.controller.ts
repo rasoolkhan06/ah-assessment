@@ -1,9 +1,11 @@
-import { Controller, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Controller, Post, Get, UploadedFile, UseInterceptors, Param, Res, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
+import { createReadStream } from 'fs';
+import { Response } from 'express';
 import { AppService } from './app.service';
 
 const prisma = new PrismaClient();
@@ -32,6 +34,35 @@ export class TranscriptionController {
 
     this.transcriptionService.processAudio(filePath, record.id);
 
-    return { message: 'Transcription started' };
+    return { 
+      id: record.id, 
+      status: 'processing',
+      message: 'Transcription is being processed. Use the report endpoint to check status.'
+    };
+  }
+
+  @Get('report/:id')
+  async getReport(@Param('id') id: string) {
+    const record = await prisma.transcription.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        transcript: true,
+        soapReport: true,
+        error: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    if (!record) {
+      throw new NotFoundException(`Report with ID ${id} not found`);
+    }
+
+    return {
+      success: true,
+      data: record
+    };
   }
 }

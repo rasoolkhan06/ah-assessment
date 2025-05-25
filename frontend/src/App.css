@@ -55,6 +55,13 @@ button {
   background-color: #2980b9;
 }
 
+.record-button:disabled,
+.stop-button:disabled {
+  background-color: #95a5a6 !important;
+  cursor: not-allowed !important;
+  opacity: 0.7 !important;
+}
+
 .status {
   margin-top: 1rem;
   color: #7f8c8d;
